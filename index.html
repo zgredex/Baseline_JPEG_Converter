@@ -449,7 +449,7 @@
             </div>
         </div>
 
-        <footer>Made by <a href="#">Megabit & pablohc</a> • <a href="guide.html">📖 User Guide</a> • v2.9.0</footer>
+        <footer>Made by <a href="#">Megabit & pablohc</a> • <a href="guide.html">📖 User Guide</a> • v3.0.0</footer>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -1346,24 +1346,43 @@
                             const step = maxW - overlapPx;
                             const numParts = Math.ceil((rotW - overlapPx) / step);
                             
+                            // Calculate all x positions first to ensure consistency
+                            const positions = [];
                             for (let i = 0; i < numParts; i++) {
                                 let x;
                                 if (imageMode === 'cw') {
-                                    // CW: right to left
+                                    // CW: right to left - start from right edge
                                     x = rotW - maxW - (i * step);
-                                    if (i === numParts - 1) x = 0;
                                 } else {
-                                    // CCW: left to right
+                                    // CCW: left to right - start from left edge
                                     x = i * step;
-                                    if (i === numParts - 1) x = rotW - maxW;
                                 }
+                                // Clamp to valid range
                                 x = Math.max(0, Math.min(x, rotW - maxW));
-                                const partW = Math.min(maxW, rotW - x);
+                                positions.push(x);
+                            }
+                            
+                            // Ensure first and last positions are at edges
+                            if (imageMode === 'cw') {
+                                positions[0] = rotW - maxW; // First part at right edge
+                                positions[numParts - 1] = 0; // Last part at left edge
+                            } else {
+                                positions[0] = 0; // First part at left edge
+                                positions[numParts - 1] = rotW - maxW; // Last part at right edge
+                            }
+                            
+                            for (let i = 0; i < numParts; i++) {
+                                const x = positions[i];
+                                const partW = maxW; // Always full width for consistency
                                 
                                 const partCanvas = document.createElement('canvas');
                                 partCanvas.width = partW;
                                 partCanvas.height = rotH;
                                 const partCtx = partCanvas.getContext('2d');
+                                // Clear canvas first
+                                partCtx.fillStyle = '#FFFFFF';
+                                partCtx.fillRect(0, 0, partW, rotH);
+                                // Draw the slice
                                 partCtx.drawImage(rotCanvas, x, 0, partW, rotH, 0, 0, partW, rotH);
                                 
                                 const blob = await new Promise(res => partCanvas.toBlob(res, 'image/jpeg', jpegQuality/100));
@@ -1416,16 +1435,30 @@
                             const step = maxW - overlapPx;
                             const numParts = Math.ceil((scaledW - overlapPx) / step);
                             
+                            // Calculate all x positions first to ensure consistency
+                            const positions = [];
                             for (let i = 0; i < numParts; i++) {
                                 let x = i * step;
-                                if (i === numParts - 1) x = scaledW - maxW;
+                                // Clamp to valid range
                                 x = Math.max(0, Math.min(x, scaledW - maxW));
-                                const partW = Math.min(maxW, scaledW - x);
+                                positions.push(x);
+                            }
+                            // Ensure last position is at right edge
+                            positions[0] = 0;
+                            positions[numParts - 1] = scaledW - maxW;
+                            
+                            for (let i = 0; i < numParts; i++) {
+                                const x = positions[i];
+                                const partW = maxW; // Always full width for consistency
                                 
                                 const partCanvas = document.createElement('canvas');
                                 partCanvas.width = partW;
                                 partCanvas.height = scaledH;
                                 const partCtx = partCanvas.getContext('2d');
+                                // Clear canvas first
+                                partCtx.fillStyle = '#FFFFFF';
+                                partCtx.fillRect(0, 0, partW, scaledH);
+                                // Draw the slice
                                 partCtx.drawImage(scaledCanvas, x, 0, partW, scaledH, 0, 0, partW, scaledH);
                                 
                                 const blob = await new Promise(res => partCanvas.toBlob(res, 'image/jpeg', jpegQuality/100));
@@ -1569,42 +1602,116 @@
                     t = t.split(o.split('/').pop()).join(n.split('/').pop());
                 }
                 
-                // Update XHTML references for split images
+                // Update XHTML references for split images - duplicate container block for each part
+                // Use DOMParser for safe HTML manipulation (regex can't handle nested tags properly)
                 for (const [splitKey, parts] of Object.entries(splitImages)) {
                     const origName = splitKey.split('/').pop();
                     const newName = origName.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
-                    const blockRegex = new RegExp(
-                        `(<(?:p|div)[^>]*>\\s*<span>\\s*<img[^>]*src=["'][^"']*(?:${origName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${newName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})[^>]*/>\\s*</span>\\s*</(?:p|div)>)`,
-                        'gi'
-                    );
-                    t = t.replace(blockRegex, (match) => {
-                        let result = '';
-                        for (let i = 0; i < parts.length; i++) {
-                            if (i > 0) result += '\n';
-                            let newBlock = match.replace(origName, parts[i].imgName).replace(newName, parts[i].imgName);
-                            // Update id attribute to make it unique for each part
-                            newBlock = newBlock.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            result += newBlock;
-                        }
-                        return result;
-                    });
                     
-                    const simpleImgRegex = new RegExp(
-                        `(<img[^>]*src=["'])([^"']*(?:${origName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${newName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}))([^>]*/>)`,
-                        'gi'
-                    );
-                    t = t.replace(simpleImgRegex, (match, before, src, after) => {
-                        let result = '';
-                        for (let i = 0; i < parts.length; i++) {
-                            if (i > 0) result += '\n';
-                            const partSrc = src.replace(origName, parts[i].imgName).replace(newName, parts[i].imgName);
-                            // Update id attribute in before or after to make it unique
-                            let partBefore = before.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            let partAfter = after.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            result += `${partBefore}${partSrc}${partAfter}`;
+                    const splitDir = splitKey.includes('/') ? splitKey.substring(0, splitKey.lastIndexOf('/')) : '';
+                    const splitDirParts = splitDir.split('/').filter(p => p);
+                    const rootFolders = ['ops', 'oebps', 'epub', 'content'];
+                    const lastDir = splitDirParts.length > 0 ? splitDirParts[splitDirParts.length - 1].toLowerCase() : null;
+                    const immediateParent = (lastDir && !rootFolders.includes(lastDir)) ? splitDirParts[splitDirParts.length - 1] : null;
+                    
+                    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    
+                    const pathMatches = (srcPath) => {
+                        const srcParts = srcPath.split('/').filter(p => p && p !== '..' && p !== '.');
+                        const srcName = srcParts.pop();
+                        if (srcName !== origName && srcName !== newName) return false;
+                        if (immediateParent) {
+                            if (srcParts.length === 0) return false;
+                            if (srcParts[srcParts.length - 1] !== immediateParent) return false;
                         }
-                        return result;
-                    });
+                        return true;
+                    };
+                    
+                    try {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(t, 'application/xhtml+xml');
+                        
+                        const parseError = doc.querySelector('parsererror');
+                        if (parseError) {
+                            // Fallback: just replace src
+                            const imgRegex = new RegExp(
+                                `(<img[^>]*src=["'])([^"']*(?:${escapeRegex(origName)}|${escapeRegex(newName)}))(["'])`,
+                                'gi'
+                            );
+                            t = t.replace(imgRegex, (match, before, srcPath, after) => {
+                                if (!pathMatches(srcPath)) return match;
+                                const newSrc = srcPath.replace(new RegExp(escapeRegex(origName) + '$'), parts[0].imgName)
+                                                      .replace(new RegExp(escapeRegex(newName) + '$'), parts[0].imgName);
+                                return before + newSrc + after;
+                            });
+                            continue;
+                        }
+                        
+                        const allImgs = doc.querySelectorAll('img');
+                        const matchingImgs = [];
+                        for (const img of allImgs) {
+                            const src = img.getAttribute('src') || '';
+                            if (pathMatches(src)) {
+                                matchingImgs.push(img);
+                            }
+                        }
+                        
+                        for (const img of matchingImgs) {
+                            let container = img.parentElement;
+                            const safeContainers = ['div', 'p', 'figure', 'aside'];
+                            while (container && !safeContainers.includes(container.tagName.toLowerCase())) {
+                                container = container.parentElement;
+                            }
+                            
+                            if (!container) {
+                                const src = img.getAttribute('src') || '';
+                                const newSrc = src.replace(new RegExp(escapeRegex(origName) + '$'), parts[0].imgName)
+                                                  .replace(new RegExp(escapeRegex(newName) + '$'), parts[0].imgName);
+                                img.setAttribute('src', newSrc);
+                                continue;
+                            }
+                            
+                            const parent = container.parentElement;
+                            const nextSibling = container.nextSibling;
+                            
+                            const fragments = [];
+                            for (let i = 0; i < parts.length; i++) {
+                                const clone = container.cloneNode(true);
+                                const cloneImg = clone.querySelector('img');
+                                if (cloneImg) {
+                                    const src = cloneImg.getAttribute('src') || '';
+                                    const newSrc = src.replace(new RegExp(escapeRegex(origName) + '$'), parts[i].imgName)
+                                                      .replace(new RegExp(escapeRegex(newName) + '$'), parts[i].imgName);
+                                    cloneImg.setAttribute('src', newSrc);
+                                    
+                                    const suffix = parts[i].suffix || '_part' + (i+1);
+                                    const allWithId = clone.querySelectorAll('[id]');
+                                    for (const el of allWithId) {
+                                        el.setAttribute('id', el.getAttribute('id') + suffix);
+                                    }
+                                    if (clone.hasAttribute('id')) {
+                                        clone.setAttribute('id', clone.getAttribute('id') + suffix);
+                                    }
+                                }
+                                fragments.push(clone);
+                            }
+                            
+                            parent.removeChild(container);
+                            for (const frag of fragments) {
+                                if (nextSibling) {
+                                    parent.insertBefore(frag, nextSibling);
+                                } else {
+                                    parent.appendChild(frag);
+                                }
+                            }
+                        }
+                        
+                        const serializer = new XMLSerializer();
+                        t = serializer.serializeToString(doc);
+                        
+                    } catch (e) {
+                        console.warn('DOMParser failed:', e.message);
+                    }
                 }
                 out.file(path, t, { compression: 'DEFLATE', createFolders: false });
             }
@@ -1625,10 +1732,28 @@
                 
                 // Update OPF manifest for split images
                 for (const [splitKey, parts] of Object.entries(splitImages)) {
-                    const origName = splitKey.split('/').pop();
-                    const origBaseName = origName.replace(/\.[^.]+$/, '');
-                    const origImgRegex = new RegExp(`(href=["'][^"']*/?)(${origBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\.(?:jpg|jpeg|png|gif|webp|bmp)(["'])`, 'gi');
-                    t = t.replace(origImgRegex, `$1${origBaseName}_part1.jpg$3`);
+                    // splitKey is full path like "OEBPS/images/spread.png"
+                    // Calculate the href as it would appear in OPF (relative to OPF directory)
+                    let origHref;
+                    if (opfDir && splitKey.startsWith(opfDir + '/')) {
+                        origHref = splitKey.substring(opfDir.length + 1);
+                    } else {
+                        origHref = splitKey;
+                    }
+                    
+                    // Also need the .jpg version
+                    const origHrefJpg = origHref.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
+                    const origBaseName = splitKey.split('/').pop().replace(/\.[^.]+$/, '');
+                    
+                    // Match the exact href path, not just basename
+                    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const origHrefPattern = escapeRegex(origHref);
+                    const origHrefJpgPattern = escapeRegex(origHrefJpg);
+                    
+                    // Replace href with part1 version
+                    const part1Href = origHrefJpg.replace(/\.jpg$/i, '_part1.jpg');
+                    const origImgRegex = new RegExp(`(href=["'])(${origHrefPattern}|${origHrefJpgPattern})(["'])`, 'gi');
+                    t = t.replace(origImgRegex, `$1${part1Href}$3`);
                     
                     // Add manifest entries for additional parts with correct relative paths
                     let manifestAdditions = '';
@@ -1963,49 +2088,126 @@
                     t = t.split(o.split('/').pop()).join(n.split('/').pop());
                 }
                 
-                // For split images: replace single img tag with multiple img tags (all parts)
+                // For split images: replace the container block with separate blocks for each part
+                // Use DOMParser for safe HTML manipulation (regex can't handle nested tags properly)
                 for (const [splitKey, parts] of Object.entries(splitImages)) {
                     const origName = splitKey.split('/').pop();
                     const newName = origName.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
                     
-                    // Find and replace the whole block: <p|div>...<img>...</p|div>
-                    const blockRegex = new RegExp(
-                        `(<(?:p|div)[^>]*>\\s*<span>\\s*<img[^>]*src=["'][^"']*(?:${origName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${newName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})[^>]*/>\\s*</span>\\s*</(?:p|div)>)`,
-                        'gi'
-                    );
+                    const splitDir = splitKey.includes('/') ? splitKey.substring(0, splitKey.lastIndexOf('/')) : '';
+                    const splitDirParts = splitDir.split('/').filter(p => p);
+                    const rootFolders = ['ops', 'oebps', 'epub', 'content'];
+                    const lastDir = splitDirParts.length > 0 ? splitDirParts[splitDirParts.length - 1].toLowerCase() : null;
+                    const immediateParent = (lastDir && !rootFolders.includes(lastDir)) ? splitDirParts[splitDirParts.length - 1] : null;
                     
-                    t = t.replace(blockRegex, (match) => {
-                        let result = '';
-                        for (let i = 0; i < parts.length; i++) {
-                            if (i > 0) result += '\n';
-                            let newBlock = match
-                                .replace(origName, parts[i].imgName)
-                                .replace(newName, parts[i].imgName);
-                            // Update id attribute to make it unique for each part
-                            newBlock = newBlock.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            result += newBlock;
+                    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    
+                    const pathMatches = (srcPath) => {
+                        const srcParts = srcPath.split('/').filter(p => p && p !== '..' && p !== '.');
+                        const srcName = srcParts.pop();
+                        if (srcName !== origName && srcName !== newName) return false;
+                        if (immediateParent) {
+                            if (srcParts.length === 0) return false;
+                            if (srcParts[srcParts.length - 1] !== immediateParent) return false;
                         }
-                        return result;
-                    });
+                        return true;
+                    };
                     
-                    // Also handle simpler cases: just <img> without wrapper
-                    const simpleImgRegex = new RegExp(
-                        `(<img[^>]*src=["'])([^"']*(?:${origName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${newName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}))([^>]*/>)`,
-                        'gi'
-                    );
-                    
-                    t = t.replace(simpleImgRegex, (match, before, src, after) => {
-                        let result = '';
-                        for (let i = 0; i < parts.length; i++) {
-                            if (i > 0) result += '\n';
-                            const partSrc = src.replace(origName, parts[i].imgName).replace(newName, parts[i].imgName);
-                            // Update id attribute in before or after to make it unique
-                            let partBefore = before.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            let partAfter = after.replace(/\bid="([^"]+)"/, (m, id) => `id="${id}${parts[i].suffix || '_part' + (i+1)}"`);
-                            result += `${partBefore}${partSrc}${partAfter}`;
+                    try {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(t, 'application/xhtml+xml');
+                        
+                        // Check for parse errors
+                        const parseError = doc.querySelector('parsererror');
+                        if (parseError) {
+                            console.warn('DOMParser error, falling back to simple replacement');
+                            // Fallback: just replace src in img tags without duplicating blocks
+                            const imgRegex = new RegExp(
+                                `(<img[^>]*src=["'])([^"']*(?:${escapeRegex(origName)}|${escapeRegex(newName)}))(["'])`,
+                                'gi'
+                            );
+                            t = t.replace(imgRegex, (match, before, srcPath, after) => {
+                                if (!pathMatches(srcPath)) return match;
+                                const newSrc = srcPath.replace(new RegExp(escapeRegex(origName) + '$'), parts[0].imgName)
+                                                      .replace(new RegExp(escapeRegex(newName) + '$'), parts[0].imgName);
+                                return before + newSrc + after;
+                            });
+                            continue;
                         }
-                        return result;
-                    });
+                        
+                        // Find all img elements with matching src
+                        const allImgs = doc.querySelectorAll('img');
+                        const matchingImgs = [];
+                        for (const img of allImgs) {
+                            const src = img.getAttribute('src') || '';
+                            if (pathMatches(src)) {
+                                matchingImgs.push(img);
+                            }
+                        }
+                        
+                        // Process each matching img
+                        for (const img of matchingImgs) {
+                            // Find the closest container that's safe to duplicate
+                            let container = img.parentElement;
+                            const safeContainers = ['div', 'p', 'figure', 'aside'];
+                            while (container && !safeContainers.includes(container.tagName.toLowerCase())) {
+                                container = container.parentElement;
+                            }
+                            
+                            if (!container) {
+                                // No safe container found, just update src to first part
+                                const src = img.getAttribute('src') || '';
+                                const newSrc = src.replace(new RegExp(escapeRegex(origName) + '$'), parts[0].imgName)
+                                                  .replace(new RegExp(escapeRegex(newName) + '$'), parts[0].imgName);
+                                img.setAttribute('src', newSrc);
+                                continue;
+                            }
+                            
+                            const parent = container.parentElement;
+                            const nextSibling = container.nextSibling;
+                            
+                            // Create duplicates for each part
+                            const fragments = [];
+                            for (let i = 0; i < parts.length; i++) {
+                                const clone = container.cloneNode(true);
+                                const cloneImg = clone.querySelector('img');
+                                if (cloneImg) {
+                                    const src = cloneImg.getAttribute('src') || '';
+                                    const newSrc = src.replace(new RegExp(escapeRegex(origName) + '$'), parts[i].imgName)
+                                                      .replace(new RegExp(escapeRegex(newName) + '$'), parts[i].imgName);
+                                    cloneImg.setAttribute('src', newSrc);
+                                    
+                                    // Update IDs to be unique
+                                    const suffix = parts[i].suffix || '_part' + (i+1);
+                                    const allWithId = clone.querySelectorAll('[id]');
+                                    for (const el of allWithId) {
+                                        el.setAttribute('id', el.getAttribute('id') + suffix);
+                                    }
+                                    if (clone.hasAttribute('id')) {
+                                        clone.setAttribute('id', clone.getAttribute('id') + suffix);
+                                    }
+                                }
+                                fragments.push(clone);
+                            }
+                            
+                            // Remove original and insert all parts
+                            parent.removeChild(container);
+                            for (const frag of fragments) {
+                                if (nextSibling) {
+                                    parent.insertBefore(frag, nextSibling);
+                                } else {
+                                    parent.appendChild(frag);
+                                }
+                            }
+                        }
+                        
+                        // Serialize back to string
+                        const serializer = new XMLSerializer();
+                        t = serializer.serializeToString(doc);
+                        
+                    } catch (e) {
+                        console.warn('DOMParser failed:', e.message, '- skipping split replacement for this file');
+                    }
                 }
                 
                 out.file(path, t, { compression: 'DEFLATE', createFolders: false });
@@ -2030,12 +2232,27 @@
                 
                 // Add split images to manifest and update original image references
                 for (const [splitKey, parts] of Object.entries(splitImages)) {
-                    const origName = splitKey.split('/').pop();
-                    const origBaseName = origName.replace(/\.[^.]+$/, '');
+                    // splitKey is full path like "OEBPS/images/spread.png"
+                    // Calculate the href as it would appear in OPF (relative to OPF directory)
+                    let origHref;
+                    if (opfDir && splitKey.startsWith(opfDir + '/')) {
+                        origHref = splitKey.substring(opfDir.length + 1);
+                    } else {
+                        origHref = splitKey;
+                    }
                     
-                    // Update original image reference to part1
-                    const origImgRegex = new RegExp(`(href=["'][^"']*/?)(${origBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\.(?:jpg|jpeg|png|gif|webp|bmp)(["'])`, 'gi');
-                    t = t.replace(origImgRegex, `$1${origBaseName}_part1.jpg$3`);
+                    // Also need the .jpg version
+                    const origHrefJpg = origHref.replace(/\.(png|gif|webp|bmp|jpeg)$/i, '.jpg');
+                    
+                    // Match the exact href path, not just basename
+                    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const origHrefPattern = escapeRegex(origHref);
+                    const origHrefJpgPattern = escapeRegex(origHrefJpg);
+                    
+                    // Replace href with part1 version
+                    const part1Href = origHrefJpg.replace(/\.jpg$/i, '_part1.jpg');
+                    const origImgRegex = new RegExp(`(href=["'])(${origHrefPattern}|${origHrefJpgPattern})(["'])`, 'gi');
+                    t = t.replace(origImgRegex, `$1${part1Href}$3`);
                     
                     // Add manifest entries for parts 2, 3, etc. with correct relative paths
                     let manifestAdditions = '';

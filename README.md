@@ -108,15 +108,18 @@ Default settings: 85% quality, grayscale ON, no rotation/split.
    a. CW/CCW mode:
       - Scale width to screen height (800px)
       - Rotate 90° clockwise or counter-clockwise
+      - Calculate split positions (edges forced to exact boundaries)
+      - Clear canvas with white background before each part
       - Split into pages with configured overlap
       - CW: right-to-left order, CCW: left-to-right order
    b. Vertical mode:
       - Scale to fit height (800px)
       - Split vertically left-to-right with configured overlap
+      - Clear canvas with white background before each part
 5. If not selected: scale to fit 480×800
 6. Apply grayscale (if enabled)
 7. Encode as baseline JPEG (non-progressive)
-8. Update all references (XHTML, OPF, CSS, NCX)
+8. Update all references (XHTML via DOMParser, OPF, CSS, NCX)
 ```
 
 ### Split Algorithm
@@ -134,10 +137,35 @@ For a 2400×1600 image rotated CW with 15% overlap on 480×800 screen:
 | File Type | Modifications |
 |-----------|---------------|
 | Images | Convert format, scale, rotate, split, grayscale |
-| XHTML | Update `<img>` src, duplicate elements for splits, fix IDs |
+| XHTML | Update `<img>` src, duplicate container blocks for splits (via DOMParser), fix IDs |
 | OPF | Update manifest hrefs, media-types, add split image entries, ensure cover meta |
 | NCX | Sync `dtb:uid` with OPF identifier |
 | CSS | Update image references |
+
+### Split Image XHTML Handling
+
+Split images require duplicating their container block in XHTML. This tool uses **DOMParser** for safe manipulation:
+
+```
+Original:                        After split (2 parts):
+<figure>                         <figure id="img_part1">
+  <img src="spread.jpg"/>          <img src="spread_part1.jpg"/>
+</figure>                        </figure>
+                                 <figure id="img_part2">
+                                   <img src="spread_part2.jpg"/>
+                                 </figure>
+```
+
+**Why DOMParser?** Regex cannot reliably handle nested HTML:
+```html
+<div>           ← regex might start here
+  <p>
+    <img/>
+  </p>          ← regex might end here (WRONG!)
+</div>
+```
+
+DOMParser understands document structure and always produces valid XML.
 
 ### Validation
 
@@ -188,6 +216,14 @@ Smart scaling to 480×800 is the biggest factor — large source images become d
 - [Atkinson Hyperlegible Next](https://fonts.google.com/specimen/Atkinson+Hyperlegible) - UI font
 
 ## Changelog
+
+### v3.0.0
+- **DOMParser for XHTML manipulation**: Replaced regex-based approach with proper DOM parsing for split image block duplication. This fundamentally fixes tag mismatch errors that occurred with nested HTML structures.
+- **Safe container detection**: Automatically finds the closest safe container (div/p/figure/aside) for each image, regardless of nesting depth.
+- **Canvas clearing**: Added white background fill before each split part to prevent image artifacts.
+- **Precise edge positions**: Split parts now have mathematically exact edge alignment (first and last parts forced to image boundaries).
+- **Root folder handling**: Images in EPUB root folders (OPS/OEBPS) now correctly matched even without path in src attribute.
+- **Path collision prevention**: Full path verification prevents wrong image replacement when same-named files exist in different folders.
 
 ### v2.9.0
 - **User Guide**: Built-in documentation page (`guide.html`)
