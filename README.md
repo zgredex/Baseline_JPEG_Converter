@@ -39,8 +39,8 @@ Optimized for manga and light novels with horizontal spread images:
 - Separate overlap for vertical split: 5%, 10%, or 15%
 
 ### EPUB Repairs
-- **SVG cover fix**: Unwraps images from problematic SVG containers
-- **SVG-wrapped images**: Detects and fixes `<svg><image xlink:href="..."/></svg>` patterns
+- **SVG cover fix**: Unwraps images from problematic SVG containers (supports `<svg:svg>` namespace prefix)
+- **SVG-wrapped images**: Detects and fixes `<svg><image xlink:href="..."/></svg>` and `<svg:svg><svg:image>` patterns
 - **Cover metadata**: Ensures `<meta name="cover" content="..."/>` exists in OPF
 - **Manifest sync**: Updates image references and media-types after conversion
 - **NCX identifier sync**: Synchronizes `dtb:uid` with OPF `dc:identifier`
@@ -142,10 +142,11 @@ For a 2400×1600 image rotated CW with 15% overlap on 480×800 screen:
 | NCX | Sync `dtb:uid` with OPF identifier |
 | CSS | Update image references |
 
-### Split Image XHTML Handling
+### XHTML Manipulation with DOMParser
 
-Split images require duplicating their container block in XHTML. This tool uses **DOMParser** for safe manipulation:
+All XHTML modifications use **DOMParser** for safe, bulletproof manipulation:
 
+**1. Split Image Block Duplication**
 ```
 Original:                        After split (2 parts):
 <figure>                         <figure id="img_part1">
@@ -156,7 +157,15 @@ Original:                        After split (2 parts):
                                  </figure>
 ```
 
-**Why DOMParser?** Regex cannot reliably handle nested HTML:
+**2. SVG Cover/Image Unwrapping**
+```
+Original:                        After fix:
+<svg:svg viewBox="0 0 600 900">  <img src="../images/cover.jpg" alt="Cover"/>
+  <svg:image xlink:href="..."/>
+</svg:svg>
+```
+
+**Why DOMParser?** Regex cannot reliably handle nested HTML or XML namespaces:
 ```html
 <div>           ← regex might start here
   <p>
@@ -165,7 +174,7 @@ Original:                        After split (2 parts):
 </div>
 ```
 
-DOMParser understands document structure and always produces valid XML.
+DOMParser understands document structure, handles all namespace variants (`svg:`, `xlink:`), and always produces valid XML.
 
 ### Validation
 
@@ -218,12 +227,17 @@ Smart scaling to 480×800 is the biggest factor — large source images become d
 ## Changelog
 
 ### v3.0.0
-- **DOMParser for XHTML manipulation**: Replaced regex-based approach with proper DOM parsing for split image block duplication. This fundamentally fixes tag mismatch errors that occurred with nested HTML structures.
+- **DOMParser for all XHTML manipulation**: Replaced regex-based approach with proper DOM parsing for:
+  - Split image block duplication (fixes tag mismatch errors with nested HTML)
+  - SVG cover fix (handles all namespace variants)
+  - SVG-wrapped image unwrapping (preserves dimensions)
+- **SVG namespace prefix support**: Handles `<svg:svg>`, `<svg:image>`, and standard `<svg>` variants.
 - **Safe container detection**: Automatically finds the closest safe container (div/p/figure/aside) for each image, regardless of nesting depth.
 - **Canvas clearing**: Added white background fill before each split part to prevent image artifacts.
 - **Precise edge positions**: Split parts now have mathematically exact edge alignment (first and last parts forced to image boundaries).
 - **Root folder handling**: Images in EPUB root folders (OPS/OEBPS) now correctly matched even without path in src attribute.
 - **Path collision prevention**: Full path verification prevents wrong image replacement when same-named files exist in different folders.
+- **Noto Sans font**: Replaced Atkinson Hyperlegible with Noto Sans family for full international support (CJK, Arabic, Hebrew).
 
 ### v2.9.0
 - **User Guide**: Built-in documentation page (`guide.html`)
